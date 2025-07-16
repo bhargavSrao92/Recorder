@@ -8,7 +8,7 @@ A SwiftUI-based iOS app that supports live audio recording with real-time transc
 
 - Live audio recording with real-time transcription
 - Pause, resume, and stop recording functionality
-- View past recordings along with their transcriptions
+- View past recordings.
 - Playback recorded audio
 - Persist data locally using Core Data
 
