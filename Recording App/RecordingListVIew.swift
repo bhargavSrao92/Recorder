@@ -12,18 +12,35 @@ import Speech
 struct RecordingListView: View {
     @State private var recordings: [URL] = []
     @State private var player: AVAudioPlayer?
+    
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \Item.date, ascending: false)],
+        animation: .default)
+    private var items: FetchedResults<Item>
+
 
     var body: some View {
         NavigationView {
             List {
                 ForEach(recordings, id: \.self) { url in
-                    HStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 8) {
-                             Text(url.deletingPathExtension().lastPathComponent)
+                    let fileName = url.deletingPathExtension().lastPathComponent
+                    let matchingTranscript = items.first(where: {
+                        ($0.date?.formattedFileName() ?? "") == fileName
+                    })
 
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(fileName)
                                 .font(.headline)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
+
+                            if let transcript = matchingTranscript?.text {
+                                Text(transcript)
+                                    .font(.subheadline)
+                                    .foregroundColor(.gray)
+                                    .lineLimit(2)
+                            }
                         }
 
                         Spacer()
@@ -35,7 +52,6 @@ struct RecordingListView: View {
                                 .font(.system(size: 24))
                                 .foregroundColor(.green)
                         }
-                        .buttonStyle(BorderlessButtonStyle())
 
                         Button(action: {
                         }) {
@@ -43,17 +59,16 @@ struct RecordingListView: View {
                                 .font(.system(size: 22))
                                 .foregroundColor(.blue)
                         }
-                        .buttonStyle(BorderlessButtonStyle())
                     }
-                    .padding(.vertical, 12) // 🔼 Increase row height
+                    .padding(.vertical, 12)
                 }
-                .onDelete(perform: deleteRecording) // ✅ Swipe to delete
+                .onDelete(perform: deleteRecording)
             }
             .navigationTitle("Recordings")
             .onAppear(perform: loadRecordings)
-            
         }
     }
+
 
     func loadRecordings() {
         guard let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
@@ -98,23 +113,12 @@ struct RecordingListView: View {
         }
     }
 
-    func share(url: URL) {
-        
-        let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let root = windowScene.windows.first?.rootViewController {
-            root.present(activityVC, animated: true)
-        }
-    }
-    struct ShareSheet: UIViewControllerRepresentable {
-        let activityItems: [Any]
-        
-        func makeUIViewController(context: Context) -> UIActivityViewController {
-            UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
-        }
+}
 
-        func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
-            // no update needed
-        }
+extension Date {
+    func formattedFileName() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        return formatter.string(from: self)
     }
 }

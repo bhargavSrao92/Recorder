@@ -30,6 +30,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var transcript: String = ""
     @Published var fileURL: URL?
     @Published var showShareSheet = false
+    @Environment(\.managedObjectContext) private var viewContext
 
     private var seconds = 0 {
         didSet {
@@ -193,7 +194,24 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioPlayerDelegate {
             self.seconds = 0
             self.state = .idle
         }
+        saveTranscriptToCoreData(text: transcript)
     }
+    
+    private func saveTranscriptToCoreData(text: String) {
+        let viewContext = PersistenceController.shared.container.viewContext
+        let newItem = Item(context: viewContext)
+        newItem.id = UUID()
+        newItem.date = Date()
+        newItem.text = text
+
+        do {
+            try viewContext.save()
+            print("✅ Transcript saved to Core Data")
+        } catch {
+            print("❌ Failed to save transcript: \(error.localizedDescription)")
+        }
+    }
+
 
     private func resetRecording() {
         recognitionTask?.cancel()
