@@ -24,7 +24,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var timer: Timer?
     private let writeQueue = DispatchQueue(label: "audio.write.queue")
     private var lastTranscriptUpdate = Date()
-
+    private var audioBuffers: [AVAudioPCMBuffer] = []
     @Published var state: RecordingState = .idle
     @Published var recordingDuration: String = "00:00"
     @Published var transcript: String = ""
@@ -75,7 +75,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
         let inputNode = audioEngine.inputNode
 
-        // ✅ Use hardware format to avoid crash
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
         inputNode.removeTap(onBus: 0)
@@ -94,16 +93,17 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioPlayerDelegate {
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
             guard let self else { return }
 
-            // Append to recognition
+            // Append for transcription
             self.recognitionRequest?.append(buffer)
 
-            // Write audio on background queue
+            // Store the buffer for writing after stop
             self.writeQueue.async {
-                do {
-                    try self.audioFile?.write(from: buffer)
-                } catch {
-                    print("Audio write failed: \(error)")
+                let copyBuffer = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameCapacity)!
+                copyBuffer.frameLength = buffer.frameLength
+                for i in 0..<buffer.format.channelCount {
+                    copyBuffer.floatChannelData?[Int(i)].update(from: buffer.floatChannelData![Int(i)], count: Int(buffer.frameLength))
                 }
+                self.audioBuffers.append(copyBuffer)
             }
         }
 
@@ -177,25 +177,34 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     func stopRecording() {
+        audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
-        if audioEngine.isRunning {
+        recognitionRequest?.endAudio()
+
+        DispatchQueue.global(qos: .background).async { [weak self] in
+            guard let self else { return }
+
             do {
-                try audioEngine.stop()
+                for buffer in self.audioBuffers {
+                    try self.audioFile?.write(from: buffer)
+                }
             } catch {
-                print("Error stopping engine: \(error)")
+                print("Failed to write audio buffers to file: \(error)")
             }
+
+            // Clear stored buffers
+            self.audioBuffers.removeAll()
         }
 
-        recognitionRequest?.endAudio()
-        recognitionTask?.cancel()
-
-        stopTimer()
         DispatchQueue.main.async {
+            self.stopTimer()
             self.seconds = 0
             self.state = .idle
         }
-        saveTranscriptToCoreData(text: transcript)
+        self.saveTranscriptToCoreData(text: transcript  )
+
     }
+
     
     private func saveTranscriptToCoreData(text: String) {
         let viewContext = PersistenceController.shared.container.viewContext
@@ -206,9 +215,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
         do {
             try viewContext.save()
-            print("✅ Transcript saved to Core Data")
+            print(" Transcript saved to Core Data")
         } catch {
-            print("❌ Failed to save transcript: \(error.localizedDescription)")
+            print(" Failed to save transcript: \(error.localizedDescription)")
         }
     }
 

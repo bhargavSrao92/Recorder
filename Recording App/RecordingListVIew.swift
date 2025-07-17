@@ -13,56 +13,68 @@ struct RecordingListView: View {
     @State private var recordings: [URL] = []
     @State private var player: AVAudioPlayer?
     
+    
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Item.date, ascending: false)],
         animation: .default)
     private var items: FetchedResults<Item>
+    @Environment(\.managedObjectContext) var context
 
 
     var body: some View {
         NavigationView {
             List {
-                ForEach(recordings, id: \.self) { url in
-                    let fileName = url.deletingPathExtension().lastPathComponent
-                    let matchingTranscript = items.first(where: {
-                        ($0.date?.formattedFileName() ?? "") == fileName
-                    })
+                Section {
+                    NavigationLink {
+                        TranscriptListView()
+                    } label: {
+                        Text("Transcript")
+                    }
+                }
 
-                    HStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(fileName)
-                                .font(.headline)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+                Section(header: Text("Recordings")) {
+                    ForEach(recordings, id: \.self) { url in
+                        let fileName = url.deletingPathExtension().lastPathComponent
+                        let matchingTranscript = items.first(where: {
+                            ($0.date?.formattedFileName() ?? "") == fileName
+                        })
 
-                            if let transcript = matchingTranscript?.text {
-                                Text(transcript)
-                                    .font(.subheadline)
-                                    .foregroundColor(.gray)
-                                    .lineLimit(2)
+                        HStack(spacing: 16) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(fileName)
+                                    .font(.headline)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+
+                                if let transcript = matchingTranscript?.text {
+                                    Text(transcript)
+                                        .font(.subheadline)
+                                        .foregroundColor(.gray)
+                                        .lineLimit(2)
+                                }
+                            }
+
+                            Spacer()
+
+                            Button(action: {
+                                play(url: url)
+                            }) {
+                                Image(systemName: "play.circle.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.green)
+                            }
+
+                            Button(action: {
+                            }) {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.system(size: 22))
+                                    .foregroundColor(.blue)
                             }
                         }
-
-                        Spacer()
-
-                        Button(action: {
-                            play(url: url)
-                        }) {
-                            Image(systemName: "play.circle.fill")
-                                .font(.system(size: 24))
-                                .foregroundColor(.green)
-                        }
-
-                        Button(action: {
-                        }) {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 22))
-                                .foregroundColor(.blue)
-                        }
+                        .padding(.vertical, 12)
                     }
-                    .padding(.vertical, 12)
+                    .onDelete(perform: deleteRecording)
                 }
-                .onDelete(perform: deleteRecording)
             }
             .navigationTitle("Recordings")
             .onAppear(perform: loadRecordings)
@@ -93,16 +105,38 @@ struct RecordingListView: View {
     func deleteRecording(at offsets: IndexSet) {
         for index in offsets {
             let url = recordings[index]
+            let fileName = url.deletingPathExtension().lastPathComponent
+            
+            // Delete the .caf audio file
             do {
                 try FileManager.default.removeItem(at: url)
+                
+                // Optional: Delete .txt file if used
                 let transcriptURL = url.deletingPathExtension().appendingPathExtension("txt")
                 try? FileManager.default.removeItem(at: transcriptURL)
             } catch {
-                print("Failed to delete: \(error)")
+                print("Failed to delete file: \(error)")
+            }
+            
+            // 🧠 Delete matching Core Data transcript
+            if let match = items.first(where: {
+                ($0.date?.formattedFileName() ?? "") == fileName
+            }) {
+                context.delete(match)
             }
         }
+
+        // 💾 Save Core Data changes
+        do {
+            try context.save()
+        } catch {
+            print("Failed to save context after deletion: \(error)")
+        }
+
+        // 🔁 Refresh the UI
         loadRecordings()
     }
+
 
     func play(url: URL) {
         do {
